@@ -1,0 +1,12 @@
+[package]
+name = "swaglord-rs"
+version = "0.1.0"
+authors = ["Hilmar Wiegand <me@hwgnd.de>"]
+
+[dependencies]
+serde = "1.0"
+serde_derive = "1.0"
+serde_yaml = "0.8"
+voca_rs = "1.0.0"
+askama = "0.7"
+
