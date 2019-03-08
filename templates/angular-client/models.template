@@ -1,0 +1,3 @@
+{{ range .Models }}
+export * from './{{ .File }}'
+{{ end }}

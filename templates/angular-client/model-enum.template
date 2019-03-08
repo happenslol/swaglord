@@ -1,0 +1,17 @@
+{{- define "model-enum" }}
+export enum {{ .Class }} {
+{{ with index .Enums 0 -}}
+    {{ if eq .EnumType "string" -}}
+        {{ range .Variants -}}
+        {{ .Name }} = '{{ .Value }}',
+        {{ end -}}
+    {{ end -}}
+
+    {{ if eq .EnumType "number" -}}
+        {{ range .Variants -}}
+        {{ .Name }} = {{ .Value }},
+        {{ end -}}
+    {{ end -}}
+{{ end -}}
+}
+{{- end }}

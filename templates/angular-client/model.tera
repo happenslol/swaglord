@@ -1,0 +1,25 @@
+{% include "license.tera" %}
+
+{% for import in model.imports %}
+import { {% for t in import.types %} {{ t }}, {% endfor %} } from "{{ import.file }}"
+{% endfor %}
+
+{% if model.typel == "alias" %}
+export type {{ name }} = {{ alias }}
+
+{% elif model.type == "enum" %}
+export enum {{ model.name }} {
+    {% for variant in model.variants %}
+    {{ variant.name }} = "{{ variant.value }}",
+    {% endfor %}
+}
+
+{% elif model.type == "struct" %}
+export interface {{ model.name }} {
+    {% for field in model.fields %}
+    {{ field.name }}: {{ field.field_type }},
+    {% endfor %}
+}
+
+{% endif %}
+

@@ -1,17 +1,39 @@
-#[macro_use]
-extern crate serde_derive;
-extern crate serde_yaml;
+#![allow(unused)]
 
 mod specs;
+mod gen;
+mod util;
 
-use std::env;
-use std::path::Path;
-use std::fs::File;
-use std::io::Read;
+use std::{
+    env,
+    path::Path,
+    fs::File,
+    io::Read,
+};
 
 use specs::OpenApiSpec;
+use gen::{Generator, Typescript};
+use tera;
 
-fn main() {
+#[derive(Debug)]
+pub enum Error {
+    TeraError(tera::Error),
+    IoError(std::io::Error),
+}
+
+impl From<tera::Error> for Error {
+    fn from(error: tera::Error) -> Self {
+        Error::TeraError(error)
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(error: std::io::Error) -> Self {
+        Error::IoError(error)
+    }
+}
+
+fn main() -> Result<(), Error> {
     let args = env::args().collect::<Vec<String>>();
     if args.len() < 2 {
         panic!("please supply a file name");
@@ -27,6 +49,9 @@ fn main() {
     let mut contents = String::new();
     f.read_to_string(&mut contents).expect("error reading file");
 
-    let parsed = serde_yaml::from_str::<OpenApiSpec>(&contents).unwrap();
+    let spec = serde_yaml::from_str::<OpenApiSpec>(&contents).unwrap();
+    Typescript::generate(&spec);
+
+    Ok(())
 }
 

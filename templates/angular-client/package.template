@@ -1,0 +1,34 @@
+{
+  "name": "{{ .ClientNameLower }}-client",
+  "version": "{{ .ClientVersion }}",
+  "description": "{{ .ClientDescription }}",
+  "author": "Hilmar Wiegand <hilmar.wiegand@acomodeo.com>",
+  "main": "dist/index.js",
+  "typings": "dist/index.d.ts",
+  "scripts": {
+    "build": "ngc"
+  },
+  "peerDependencies": {
+    "@angular/core": "^5.1.1",
+    "@angular/http": "^5.1.1",
+    "@angular/common": "^5.1.1",
+    "@angular/compiler": "^5.1.1",
+    "core-js": "^2.4.0",
+    "reflect-metadata": "^0.1.10",
+    "rxjs": "^5.5.6",
+    "zone.js": "^0.8.20"
+  },
+  "devDependencies": {
+    "@angular/core": "^5.1.1",
+    "@angular/http": "^5.1.1",
+    "@angular/common": "^5.1.1",
+    "@angular/compiler": "^5.1.1",
+    "@angular/compiler-cli": "^5.2.5",
+    "@angular/platform-browser": "^5.1.1",
+    "@angular/platform-server": "^5.2.5",
+    "reflect-metadata": "^0.1.10",
+    "rxjs": "^5.5.6",
+    "zone.js": "^0.8.20",
+    "typescript": "^2.6.2"
+  }
+}

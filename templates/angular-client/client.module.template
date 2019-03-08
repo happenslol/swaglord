@@ -1,0 +1,42 @@
+import { NgModule, ModuleWithProviders, SkipSelf, Optional } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { HttpClientModule } from '@angular/common/http';
+
+import { {{ clientName }}ClientConfig } from './{{ clientNameLower }}-client.config';
+
+{{#apiInfo}}
+{{#apis}}
+import { {{classname}} } from './{{importPath}}';
+{{/apis}}
+{{/apiInfo}}
+
+@NgModule({
+    imports: [ CommonModule, HttpClientModule ],
+    providers: [
+        {{#apiInfo}}{{#apis}}
+        {{classname}},
+        {{/apis}}{{/apiInfo}}
+    ]
+})
+export class {{ clientName }}ClientModule {
+    public static forRoot(
+        configFactory: () => {{ clientName }}ClientConfig,
+    ): ModuleWithProviders {
+        return {
+            ngModule: {{ clientName }}ClientModule,
+            providers: [{ provide: {{ clientName }}ClientConfig, useFactory: configFactory }],
+        }
+    }
+
+    constructor(
+        @Optional() @SkipSelf()
+        parentModule: {{ clientName }}ClientModule,
+    ) {
+        if (parentModule) {
+            throw new Error(
+                '{{ clientName }}ClientModule is already loaded. ' +
+                'Please only import this module from your root module.'
+            )
+        }
+    }
+}

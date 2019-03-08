@@ -1,0 +1,147 @@
+{{- define "service" }}
+
+import { Injectable } from '@angular/core'
+import { HttpClient, HttpHeaders, HttpParams, HttpResponse, HttpEvent }
+    from '@angular/common/http'
+
+import { Observable } from 'rxjs/Observable'
+import { {{ $.ClientName.ToPascalCase }}ClientConfig } from '../{{ $.ClientName.ToKebapCase }}-client.config'
+import { CustomHttpUrlEncodingCodec, canConsumeForm } from '../util'
+
+{{ range $key, $value := .Imports }}
+import { {{ $key.Class }} } from '{{ $key.File }}'
+{{ end }}
+
+export class {{ .Name.ToPascalCase }} {
+    defaultHeaders = new HttpHeaders()
+    private basePath = '{{ $.BasePath }}'
+
+    constructor(
+        protected httpClient: HttpClient,
+        private config: {{ $.ClientName }}ClientConfig,
+    ) {}
+
+    {{ range .Endpoints }}
+    {{ .Name }}(
+    {{ if .BodyParam.Name }}
+        {{ .BodyParam.Name.ToCamelCase }}{{ if .BodyParam.Required }}?{{ end }}: {{ .BodyParam.Type.Name }},
+    {{ end }}
+    {{ range .QueryParams }}
+        {{ .Name.ToCamelCase }}{{ if .Required }}?{{ end }}: {{ .Type.Name }},
+    {{ end }}
+    {{ range .HeaderParams }}
+        {{ .Name.ToCamelCase }}{{ if .Required }}?{{ end }}: {{ .Type.Name }},
+    {{ end }}
+        observe?: 'body',
+        reportProgress?: boolean,
+        selectAccept?: (accepts: string[]) => string,
+        selectConsumes?: (consumes: string[]) => string,
+    ): Observable<{{ .ReturnType }}>
+
+    {{ .Name }}(
+    {{ if .BodyParam.Name }}
+        {{ .BodyParam.Name.ToCamelCase }}{{ if .BodyParam.Required }}?{{ end }}: {{ .BodyParam.Type.Name }},
+    {{ end }}
+    {{ range .QueryParams }}
+        {{ .Name.ToCamelCase }}{{ if .Required }}?{{ end }}: {{ .Type.Name }},
+    {{ end }}
+    {{ range .HeaderParams }}
+        {{ .Name.ToCamelCase }}{{ if .Required }}?{{ end }}: {{ .Type.Name }},
+    {{ end }}
+        observe?: 'body',
+        reportProgress?: boolean,
+        selectAccept?: (accepts: string[]) => string,
+        selectConsumes?: (consumes: string[]) => string,
+    ): Observable<{{ .ReturnType }}>
+
+    {{ .Name.ToCamelCase }}(
+    {{ if .BodyParam.Name }}
+        {{ .BodyParam.Name.ToCamelCase }}{{ if .BodyParam.Required }}?{{ end }}: {{ .BodyParam.Type.Name }},
+    {{ end }}
+    {{ range .QueryParams }}
+        {{ .Name.ToCamelCase }}{{ if .Required }}?{{ end }}: {{ .Type.Name }},
+    {{ end }}
+    {{ range .HeaderParams }}
+        {{ .Name.ToCamelCase }}{{ if .Required }}?{{ end }}: {{ .Type.Name }},
+    {{ end }}
+        observe?: 'body',
+        reportProgress?: boolean,
+        selectAccept?: (accepts: string[]) => string,
+        selectConsumes?: (consumes: string[]) => string,
+    ): Observable<{{ .ReturnType }}> {
+        {{ range .QueryParams }}
+            {{ if .Required }}
+                if ({{ .Name.ToCamelCase }} === null || {{ .Name.ToCamelCase }} === undefined) {
+                    throw new Error('Required parameter {{ .Name.ToCamelCase }} missing')
+                }
+            {{ end }}
+        {{ end }}
+        {{ range .HeaderParams }}
+            {{ if .Required }}
+                if ({{ .Name.ToCamelCase }} === null || {{ .Name.ToCamelCase }} === undefined) {
+                    throw new Error('Required parameter {{ .Name.ToCamelCase }} missing')
+                }
+            {{ end }}
+        {{ end }}
+        {{ if .BodyParam.Name }}
+            {{ if .BodyParam.Required }}
+                if ({{ .BodyParam.Name.ToCamelCase }} === null || {{ .BodyParam.Name.ToCamelCase }} === undefined) {
+                    throw new Error('Required parameter {{ .BodyParam.Name.ToCamelCase }} missing')
+                }
+            {{ end }}
+        {{ end }}
+
+        let queryParameters = new HttpParams(
+            { encoder: new CustomHttpUrlEncodingCodec() },
+        )
+
+        {{ range .QueryParams }}
+            {{ if eq .Type.Kind "array" }}
+                if ({{ .Name.ToCamelCase }}) {
+                    queryParameters = queryParameters.set(
+                        '{{ .Name.ToCamelCase}}', {{ .Name.ToCamelCase }}.join(','),
+                    )
+                }
+            {{ else }}
+                if ({{ .Name }} !== undefined) {
+                    queryParameters = queryParameters.set(
+                        '{{ .Name.ToCamelCase }}', {{ .Name.ToCamelCase }},
+                    )
+                }
+            {{ end }}
+        {{ end }}
+
+        let headers = this.defaultHeaders
+
+        {{ range .HeaderParams }}
+            {{ if eq .Type.Kind "array" }}
+                if ({{ .Name.ToCamelCase }}) {
+                    headers = headers.set(
+                        '{{ .Name.ToCamelCase }}', {{ .Name.ToCamelCase }}.join(','),
+                    )
+                }
+            {{ else }}
+                if ({{ .Name.ToCamelCase }} !== undefined) {
+                    headers = headers.set(
+                        '{{ .Name.ToCamelCase }}', {{ .Name.ToCamelCase }},
+                    )
+                }
+            {{ end }}
+        {{ end }}
+
+        return this.httpClient.{{ .Method }}<{{ .ReturnType }}>(
+            `${this.config.host}${this.basePath}{{ .Path }}`,
+            {{ if .BodyParam.Name }}{{ .BodyParam.Name.ToCamelCase }},{{ end }}
+            {
+                params: queryParameters,
+                headers: headers,
+                observe: observe,
+                reportProgress: reportProgress,
+            },
+        )
+    }
+
+    {{ end }}
+}
+
+{{- end }}

@@ -1,0 +1,115 @@
+import { HttpUrlEncodingCodec } from '@angular/common/http'
+
+/**
+* CustomHttpUrlEncodingCodec
+* Fix plus sign (+) not encoding, so sent as blank space
+* See: https://github.com/angular/angular/issues/11058#issuecomment-247367318
+*/
+export class CustomHttpUrlEncodingCodec extends HttpUrlEncodingCodec {
+    encodeKey(k: string): string {
+        k = super.encodeKey(k)
+        return k.replace(/\+/gi, '%2B')
+    }
+    encodeValue(v: string): string {
+        v = super.encodeValue(v)
+        return v.replace(/\+/gi, '%2B')
+    }
+}
+
+/**
+* @param consumes string[] mime-types
+* @return true: consumes contains 'multipart/form-data', false: otherwise
+*/
+export const canConsumeForm: (consumes: string[]) => boolean =
+    consumes => consumes.indexOf('multipart/form-data') !== -1
+
+/**
+ * FilterMethod
+ * Enum of all possible filter values.
+ * Use 'Is' for non comparable types such as string, and 'Eq'/'Gt'/'Lt' for comparable types such as number and date.
+ */
+export enum FilterMethod {
+    Is = 'IS',
+    Exists = 'EXISTS',
+    NotExists = 'NEXISTS',
+    Like = 'LIKE',
+    Eq = 'EQ',
+    Gt = 'GT',
+    Lt = 'LT',
+}
+
+/**
+ * FilterParam
+ * A single filter parameter that is unique by its combination of key and method.
+ */
+export class FilterParam {
+    get id(): string {
+        return this.method === FilterMethod.Is
+            ? this.key
+            : `${this.key}[${this.method}]`
+    }
+
+    constructor(
+        private method: FilterMethod,
+        private key: string,
+        public value = '',
+    ) {}
+}
+
+/**
+ * Filter
+ * A collection of FilterParams with convenience method for adding and removing them, as well as formatting.
+ * Set and the remove methods return a modified clone of the current object.
+ */
+export class Filter {
+    params: { [id: string]: FilterParam } = {}
+
+    private clone() {
+        const clone = new Filter()
+        for (const key in this.params)
+            clone.params[key] = this.params[key]
+
+        return clone
+    }
+
+    toParams(): { [key: string]: string } {
+        const result = {}
+
+        for (const key in this.params) {
+            const param = this.params[key]
+            result[param.id] = param.value
+        }
+
+        return result
+    }
+
+    set(param: FilterParam): Filter {
+        const clone = this.clone()
+        clone.params[param.id] = param
+        return clone
+    }
+
+    delete(method: FilterMethod, key: string): Filter {
+        const clone = this.clone()
+        const filterParam = new FilterParam(method, key)
+        delete (clone.params[filterParam.id])
+        return clone
+    }
+
+    deleteByKey(key: string): Filter {
+        const clone = this.clone()
+        Object.keys(clone.params)
+            .filter(it => it.indexOf(key) !== -1)
+            .forEach(it => delete (clone.params[it]))
+        return clone
+    }
+
+    deleteByMethod(method: FilterMethod): Filter {
+        const clone = this.clone()
+        Object.keys(clone.params)
+            .filter(it => it.indexOf(method) !== -1)
+            .forEach(it => delete (clone.params[it]))
+        return clone
+    }
+}
+

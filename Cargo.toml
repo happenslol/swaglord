@@ -2,11 +2,12 @@
 name = "swaglord-rs"
 version = "0.1.0"
 authors = ["Hilmar Wiegand <me@hwgnd.de>"]
+edition = "2018"
 
 [dependencies]
-serde = "1.0"
-serde_derive = "1.0"
-serde_yaml = "0.8"
-voca_rs = "1.0.0"
-askama = "0.7"
+serde = "^1.0"
+serde_derive = "^1.0"
+serde_yaml = "^0.8"
+voca_rs = "^1.0.0"
+tera = "^1.0.0-beta.2"
 

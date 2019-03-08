@@ -1,0 +1,7 @@
+export class {{ clientName }}ClientConfig {
+    host?: string
+
+    constructor(host: string = '') {
+        this.host = host
+    }
+}

@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use serde_derive::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct OpenApiSpec {
