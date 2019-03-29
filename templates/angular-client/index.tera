@@ -1,0 +1,6 @@
+{% include "license.tera" %}
+
+{% for export in exports %}
+export * from './{{ export }}'
+{%- endfor %}
+

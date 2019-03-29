@@ -1,24 +1,26 @@
 {% include "license.tera" %}
 
-{% for import in model.imports %}
-import { {% for t in import.types %} {{ t }}, {% endfor %} } from "{{ import.file }}"
+{% if imports %}
+{% for import in imports %}
+import { {% for t in import.types %} {{ t }}, {% endfor %} } from "../{{ import.file }}"
 {% endfor %}
+{% endif %}
 
-{% if model.typel == "alias" %}
+{% if type == "Alias" %}
 export type {{ name }} = {{ alias }}
 
-{% elif model.type == "enum" %}
-export enum {{ model.name }} {
-    {% for variant in model.variants %}
+{% elif type == "Enum" %}
+export enum {{ name }} {
+    {% for variant in variants -%}
     {{ variant.name }} = "{{ variant.value }}",
-    {% endfor %}
+    {%- endfor %}
 }
 
-{% elif model.type == "struct" %}
-export interface {{ model.name }} {
-    {% for field in model.fields %}
-    {{ field.name }}: {{ field.field_type }},
-    {% endfor %}
+{% elif type == "Struct" %}
+export interface {{ name }} {
+    {% for field in fields -%}
+    {{ field.name }}{% if not field.required %}?{% endif %}: {{ field.field_type }},
+    {%- endfor %}
 }
 
 {% endif %}

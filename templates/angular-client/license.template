@@ -1,5 +1,0 @@
-{{ define "license" -}}
-/**
- * Some License shit here
- */
-{{ end }}

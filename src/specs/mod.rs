@@ -14,11 +14,11 @@ pub struct OpenApiSpec {
 #[derive(Debug, Deserialize, Clone)]
 #[serde(untagged)]
 pub enum RefOr<T> where T: Clone {
-    Object(T),
     Ref {
         #[serde(rename = "$ref")]
         ref_path: String,
     },
+    Object(T),
 }
 
 #[derive(Debug, Deserialize, Clone)]

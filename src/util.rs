@@ -1,5 +1,6 @@
 use std::fs;
 use tera::Tera;
+use serde_json;
 use crate::{Error, gen::TemplateContext};
 
 pub fn load_templates(path: &str) -> Result<Tera, Error> {
@@ -8,12 +9,20 @@ pub fn load_templates(path: &str) -> Result<Tera, Error> {
     Ok(result)
 }
 
-pub fn write_template<T>(tera: &Tera, values: &Vec<T>) -> Result<(), Error>
+pub fn write_templates<T>(tera: &Tera, values: &Vec<T>, subdir: Option<&str>) -> Result<(), Error>
 where
     T: TemplateContext
 {
+    let dest = subdir.map_or(
+        String::from("./out"),
+        |it| format!("./out/{}", it),
+    );
+
+    fs::create_dir_all(&dest).unwrap();
     for it in values {
-        let path = format!("./out/{}", it.filename());
+        println!("writing {}", it.filename());
+
+        let path = format!("{}/{}", dest, it.filename());
         let rendered = tera.render_value(it.template(), it)?;
         fs::write(&path, &rendered)?;
     }

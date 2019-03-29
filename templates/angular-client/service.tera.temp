@@ -1,0 +1,125 @@
+{% include "license.tera"  %}
+
+import { Injectable } from '@angular/core'
+import { HttpClient, HttpHeaders, HttpParams, HttpResponse, HttpEvent }
+    from '@angular/common/http'
+
+import { Observable } from 'rxjs/Observable'
+import { CustomHttpUrlEncodingCodec, canConsumeForm } from '../util'
+import { {{ client_name_pascal }}ClientConfig }
+    from '../{{ client_name_kebab }}-client.config'
+
+{% for import in imports %}
+import { {% for t in import.types %} {{ t }}, {% endfor %} } from "../{{ import.file }}"
+{% endfor %}
+
+export class {{ name }} {
+    defaultHeaders = new HttpHeaders()
+    private basePath = '{{ base_path }}'
+
+    constructor(
+        protected httpClient: HttpClient,
+        private config: {{ client_name_pascal }}ClientConfig,
+    ) {}
+
+    {% for endpoint in endpoints %}
+
+    {{ endpoint.name }}(
+    {% if body_param %}
+        {{ body_param.name }}{% if not body_param.required %}?{% endif %}: {{ body_param.field_type }},
+    {% endif %}
+    {% for param in query_params %}
+        {{ param.name }}{% if not param.required %}?{% endif %}: {{ param.field_type }},
+    {% endfor %}
+    {% for param in header_params %}
+        {{ param.name }}{% if not param.required %}?{% endif %}: {{ param.field_type }},
+    {% endfor %}
+        observe?: 'body',
+        reportProgress?: boolean,
+    ): Observable<{{ endpoint.return_type }}>
+
+    {{ endpoint.name }}(
+    {% if body_param %}
+        {{ body_param.name }}{% if not body_param.required %}?{% endif %}: {{ body_param.field_type }},
+    {% endif %}
+    {% for param in query_params %}
+        {{ param.name }}{% if not param.required %}?{% endif %}: {{ param.field_type }},
+    {% endfor %}
+    {% for param in header_params %}
+        {{ param.name }}{% if not param.required %}?{% endif %}: {{ param.field_type }},
+    {% endfor %}
+        observe?: 'response',
+        reportProgress?: boolean,
+    ): Observable<{{ endpoint.return_type }}>
+
+    {{ endpoint.name }}(
+    {% if body_param %}
+        {{ body_param.name }}{% if not body_param.required %}?{% endif %}: {{ body_param.field_type }},
+    {% endif %}
+    {% for param in query_params %}
+        {{ param.name }}{% if not param.required %}?{% endif %}: {{ param.field_type }},
+    {% endfor %}
+    {% for param in header_params %}
+        {{ param.name }}{% if not param.required %}?{% endif %}: {{ param.field_type }},
+    {% endfor %}
+        observe?: 'progress',
+        reportProgress?: boolean,
+    ): Observable<{{ endpoint.return_type }}> {
+        {% for param in endpoint.query_params %}
+            {% param.required %}
+            if ({{ param.name }} === null || {{ param.name }} === undefined)
+                throw new Error('Required query parameter {{ param.name }} missing')
+            {% endif %}
+        {% end %}
+        {% for param in endpoint.header_params %}
+            {% if param.required %}
+            if ({{ param.name }} === null || {{ param.name }} === undefined)
+                throw new Error('Required header parameter {{ param.name }} missing')
+            {% endif %}
+        {% endfor %}
+        {% if body_param and body_param.required %}
+            if ({{ body_param.name }} === null || {{ body_param.name }} === undefined)
+                throw new Error('Required body parameter {{ body_param.name }} missing')
+        {% endif %}
+
+        let queryParams = new HttpParams(
+            { encoder: new CustomHttpUrlEncodingCodec() },
+        )
+
+        {% for param in endpoint.query_params %}
+            {% if param.is_array %}
+                if ({{ param.name }})
+                    queryParams = queryParams.set('{{ param.name }}', {{ param.name }}.join(','))
+            {% else %}
+                if ({{ param.name }} !== undefined)
+                    queryParams = queryParams.set('{{ param.name }}', {{ param.name }})
+            {% endif %}
+        {% endfor %}
+
+        let headers = this.defaultHeaders
+
+        {% for param in endpoint.header_params %}
+            {% if param.is_array %}
+                if ({{ .Name.ToCamelCase }})
+                    headers = headers.set('{{ param.name }}', {{ param.name }}.join(','))
+            {% else %}
+                if ({{ param.name }} !== undefined)
+                    headers = headers.set('{{ param.name }}', {{ param.name }})
+            {% endif %}
+        {% endfor %}
+
+        return this.httpClient.{{ endpoint.method }}<{{ endpoint.return_type }}>(
+            `${this.config.host}${this.basePath}{{ endpoint.path }}`,
+            {% if endpoint.body_param %}{{ endpoint.body_param.name }},{% endif %}
+            {
+                params: queryParameters,
+                headers: headers,
+                observe: observe,
+                reportProgress: reportProgress,
+            },
+        )
+    }
+
+    {% endfor %}
+}
+

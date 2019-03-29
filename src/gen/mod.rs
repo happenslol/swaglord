@@ -11,6 +11,6 @@ pub trait Generator {
 
 pub trait TemplateContext : Serialize {
     fn template(&self) -> &'static str;
-    fn filename(&self) -> &str;
+    fn filename(&self) -> String;
 }
 
