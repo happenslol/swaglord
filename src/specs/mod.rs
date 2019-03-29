@@ -4,7 +4,10 @@ use serde_derive::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct OpenApiSpec {
     pub openapi: String,
-    pub paths: Option<PathsSpec>,
+
+    #[serde(default)]
+    pub paths: BTreeMap<String, PathSpec>,
+
     pub components: Option<ComponentsSpec>,
 
     #[serde(default)]
@@ -83,8 +86,14 @@ pub struct RequestBodySpec {}
 pub struct HeaderSpec {}
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct PathsSpec {}
+pub struct PathSpec {}
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct TagSpec {}
+pub struct TagSpec {
+    #[serde(default)]
+    pub name: String,
+
+    #[serde(default)]
+    pub description: String,
+}
 

@@ -66,11 +66,11 @@ export class {{ name }} {
         reportProgress?: boolean,
     ): Observable<{{ endpoint.return_type }}> {
         {% for param in endpoint.query_params %}
-            {% param.required %}
+            {% if param.required %}
             if ({{ param.name }} === null || {{ param.name }} === undefined)
                 throw new Error('Required query parameter {{ param.name }} missing')
             {% endif %}
-        {% end %}
+        {% endfor %}
         {% for param in endpoint.header_params %}
             {% if param.required %}
             if ({{ param.name }} === null || {{ param.name }} === undefined)
@@ -100,7 +100,7 @@ export class {{ name }} {
 
         {% for param in endpoint.header_params %}
             {% if param.is_array %}
-                if ({{ .Name.ToCamelCase }})
+                if ({{ param.name }})
                     headers = headers.set('{{ param.name }}', {{ param.name }}.join(','))
             {% else %}
                 if ({{ param.name }} !== undefined)

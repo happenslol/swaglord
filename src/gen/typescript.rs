@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use serde_derive::Serialize;
 use voca_rs::case;
 use crate::{
-    specs::{OpenApiSpec, SchemaSpec, RefOr, PathsSpec, TagSpec},
+    specs::{OpenApiSpec, SchemaSpec, RefOr, PathSpec, TagSpec},
     gen::{Generator, TemplateContext},
     util,
 };
@@ -10,31 +10,53 @@ use crate::{
 pub struct TypescriptGenerator;
 impl Generator for TypescriptGenerator {
     fn generate(spec: &OpenApiSpec) {
-        let models = spec.components.as_ref().map_or_else(
-            || vec![],
-            |ref it| generate_models(&it.schemas),
-        );
+        let models = spec.components.as_ref()
+            .map_or_else(|| vec![], |it| generate_models(&it.schemas));
 
         let templates = util::load_templates("angular-client").unwrap();
 
-        util::write_templates(&templates, &models, Some("components")).unwrap();
 
-        let files = models.iter().map(|it| it.filename()).collect();
-        let index = IndexFile { exports: files };
-        util::write_templates(&templates, &vec![index], Some("components")).unwrap();
+        let model_files = models.iter().map(|it| it.filename()).collect();
+        let model_index = IndexFile { exports: model_files };
+
+        util::write_templates(&templates, &models, Some("components")).unwrap();
+        util::write_templates(&templates, &vec![model_index], Some("components")).unwrap();
+
+        let services = generate_services("Lightning", "api.com", &spec.tags, &spec.paths);
+        let service_files = services.iter().map(|it| it.filename()).collect();
+        let service_index = IndexFile { exports: service_files };
+
+        util::write_templates(&templates, &services, Some("services")).unwrap();
+        util::write_templates(&templates, &vec![service_index], Some("services")).unwrap();
     }
 }
 
 fn generate_services(
+    client_name: &str,
+    base_path: &str,
     tags: &Vec<TagSpec>,
-    paths: &Vec<PathsSpec>,
+    paths: &BTreeMap<String, PathSpec>,
 ) -> Vec<ServiceFile> {
-    let mut tag_map = HashMap::new();
+    let mut tag_map: HashMap<String, (Vec<Endpoint>, Vec<Import>)> = HashMap::new();
+
     for tag in tags.iter() {
-        tag_map.insert(tag, vec![]);
+        tag_map.insert(tag.name.clone(), (vec![], vec![]));
     }
 
-    vec![]
+    for (name, spec) in paths.iter() {}
+
+    tag_map
+        .into_iter()
+        .map(|(tag_name, (endpoints, imports))| {
+            ServiceFile {
+                name: format!("{}Service", case::pascal_case(&tag_name)),
+                client_name_kebab: case::kebab_case(client_name),
+                client_name_pascal: case::pascal_case(client_name),
+                base_path: String::from(base_path),
+                endpoints, imports,
+            }
+        })
+        .collect()
 }
 
 fn generate_models(
@@ -230,6 +252,11 @@ struct ServiceFile {
     pub name: String,
     pub base_path: String,
     pub endpoints: Vec<Endpoint>,
+}
+
+impl TemplateContext for ServiceFile {
+    fn template(&self) -> &'static str { "service.tera" }
+    fn filename(&self) -> String { format!("{}.ts", case::kebab_case(&self.name)) }
 }
 
 #[derive(Clone, Debug, Serialize)]
