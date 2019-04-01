@@ -5,6 +5,8 @@ use serde_derive::Deserialize;
 pub struct OpenApiSpec {
     pub openapi: String,
 
+    pub info: OpenApiInfoSpec,
+
     #[serde(default)]
     pub paths: BTreeMap<String, PathSpec>,
 
@@ -12,6 +14,19 @@ pub struct OpenApiSpec {
 
     #[serde(default)]
     pub tags: Vec<TagSpec>,
+
+    #[serde(default)]
+    pub servers: Vec<ServerSpec>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct OpenApiInfoSpec {
+    pub title: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ServerSpec {
+    pub url: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]

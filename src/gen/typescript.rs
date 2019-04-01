@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use serde_derive::Serialize;
 use voca_rs::case;
+use std::fmt::Debug;
 use crate::{
     specs::{OpenApiSpec, SchemaSpec, RefOr, PathSpec, TagSpec},
     gen::{Generator, TemplateContext},
@@ -16,13 +17,22 @@ impl Generator for TypescriptGenerator {
         let templates = util::load_templates("angular-client").unwrap();
 
 
-        let model_files = models.iter().map(|it| it.filename()).collect();
-        let model_index = IndexFile { exports: model_files };
+        let model_files: Vec<String> = models.iter().map(|it| it.filename()).collect();
+        let model_index = IndexFile {
+            exports: model_files.iter()
+                .map(|it| it.trim_end_matches(".ts").to_owned())
+                .collect(),
+        };
 
         util::write_templates(&templates, &models, Some("components")).unwrap();
         util::write_templates(&templates, &vec![model_index], Some("components")).unwrap();
 
-        let services = generate_services("Lightning", "api.com", &spec.tags, &spec.paths);
+        let server = spec.servers.iter().next().unwrap();
+        let services = generate_services(
+            &case::kebab_case(&spec.info.title),
+            &server.url,
+            &spec.tags, &spec.paths,
+        );
         let service_files = services.iter().map(|it| it.filename()).collect();
         let service_index = IndexFile { exports: service_files };
 
@@ -67,9 +77,38 @@ fn generate_models(
     for (name, spec) in model_specs {
         match spec {
             RefOr::Object(ref spec) => {
-                if let Some(model) = generate_model(&name, spec) {
-                    result.push(model);
+                let (models, imports) = generate_model(&name, spec, None);
+
+                let root = models[0].clone().1;
+                let mut nested: HashMap<String, Vec<Model>> = HashMap::new();
+                for (namespace, _) in models.iter().skip(1) {
+                    if let Some(namespace) = namespace.clone() {
+                        let children = models.iter()
+                            .filter(|(namespace, _)| namespace == namespace)
+                            .cloned()
+                            .map(|(_, model)| model)
+                            .collect();
+
+                        nested.insert(namespace, children);
+                    }
                 }
+
+                let mut imports_map: HashMap<String, Vec<String>> = HashMap::new();
+                for import in imports {
+                    let mut entry = imports_map.entry(import.file.clone()).or_insert(vec![]);
+                    if (!entry.iter().any(|it| it == &import.import_type)) {
+                        entry.push(String::from(import.import_type));
+                    }
+                }
+
+                let imports = imports_map
+                    .into_iter()
+                    .map(|(file, types)| GroupedImport { file, types })
+                    .collect();
+
+                result.push(ModelFile {
+                    imports, root, nested,
+                });
             },
             RefOr::Ref { .. } => println!("skipping {}, ref at base", name),
         };
@@ -78,77 +117,92 @@ fn generate_models(
     result
 }
 
-fn generate_model(name: &str, spec: &SchemaSpec) -> Option<ModelFile> {
+fn generate_model(
+    name: &str,
+    spec: &SchemaSpec,
+    namespace: Option<String>,
+) -> (Vec<(Option<String>, Model)>, Vec<Import>) {
+    let mut models = Vec::new();
+    let mut imports = Vec::new();
+
+    let child_namespace = namespace.clone().map_or(
+        case::pascal_case(name),
+        |parent| format!("{}.{}", parent, case::pascal_case(name)),
+    );
+
     if !spec.schema_enum.is_empty() {
-        match spec.schema_type.as_ref().map(|it| it.as_str()) {
-            Some("string") | None => {
-                return Some(ModelFile::Enum {
-                    name: String::from(name),
-                    variants: spec.schema_enum.iter().map(|it| {
-                        EnumVariant {
-                            name: it.clone(),
-                            value: it.clone(),
-                        }
-                    }).collect()
-                });
-            },
-            Some("number") => {
-                println!("skipping {}, number enums are not supported", name);
-            },
-            Some(other) => {
-                println!(
-                    "skipping {}, invalid model type for enum: {}",
-                    name, other,
-                );
-                return None;
-            },
-        };
+        let (_, enum_model, _) = generate_field(name, spec, None);
+        return (enum_model, imports);
     }
 
     match spec.schema_type.as_ref().map(|it| it.as_str()) {
-        Some("string") | Some("number") => Some(ModelFile::Alias {
-            name: String::from(name),
-            alias: spec.schema_type.clone().unwrap(),
-        }),
+        // base case
+        Some("string") | Some("number") => {
+            models.push((namespace, Model::Alias {
+                name: String::from(name),
+                alias: spec.schema_type.clone().unwrap(),
+                is_array: false,
+            }));
+
+            (models, imports)
+        },
         Some("array") => {
-            None
+            match spec.items {
+                Some(RefOr::Object(ref spec)) => {
+                    let (item_models, items_imports) = generate_model(
+                        "Item", spec, Some(child_namespace.clone()),
+                    );
+
+                    let item_model = item_models[0].clone();
+
+                    models.push((namespace, Model::Alias {
+                        name: String::from(name),
+                        alias: format!("{}.Item", child_namespace),
+                        is_array: true,
+                    }));
+
+                    imports.extend(items_imports.into_iter());
+                },
+                Some(RefOr::Ref { ref ref_path }) => {
+                    let parts = ref_path
+                        .split("/")
+                        .map(|it| String::from(it))
+                        .collect::<Vec<String>>();
+
+                    imports.push(Import {
+                        import_type: parts[3].clone(),
+                        file: parts[1].clone(),
+                    });
+
+                    models.push((namespace, Model::Alias {
+                        name: String::from(name),
+                        alias: String::from(name),
+                        is_array: true,
+                    }));
+                },
+                None => {
+                    println!(
+                        "skipping array {:?}:{} since items field was not present!",
+                        namespace, name,
+                    );
+                },
+            }
+
+            (models, imports)
         },
         Some("object") => {
             let mut fields = vec![];
-            let mut imports = HashMap::new();
 
             for (f_name, f_spec) in spec.properties.iter() {
                 match f_spec {
                     RefOr::Object(spec) => {
-                        match spec.schema_type.as_ref().map(|it| it.as_str()) {
-                            Some("number") | Some("string") => {
-                                // TODO(hilmar): Handle nested enums
-                                fields.push(Field {
-                                    name: f_name.clone(),
-                                    required: spec.required.iter().any(|it| it == f_name),
-                                    field_type: spec.schema_type.clone().unwrap(),
-                                    is_array: false,
-                                });
-                            },
-                            Some("array") => {
-                                fields.push(Field {
-                                    name: f_name.clone(),
-                                    required: spec.required.iter().any(|it| it == f_name),
-                                    // TODO(hilmar): Generate actual type
-                                    field_type: String::from("any"),
-                                    is_array: true,
-                                });
-                            },
-                            Some("object") => {
-                                fields.push(Field {
-                                    name: f_name.clone(),
-                                    required: spec.required.iter().any(|it| it == f_name),
-                                    // TODO(hilmar): Generate nested object
-                                    field_type: String::from("any"),
-                                    is_array: false,
-                                });
-                            },
-                            _ => {},
+                        let (field, field_models, field_imports) =
+                            generate_field(&f_name, spec, namespace.clone());
+
+                        if let Some(field) = field {
+                            fields.push(field);
+                            models.extend(field_models.into_iter());
+                            imports.extend(field_imports.into_iter());
                         }
                     },
                     RefOr::Ref { ref_path } => {
@@ -157,8 +211,10 @@ fn generate_model(name: &str, spec: &SchemaSpec) -> Option<ModelFile> {
                             .map(|it| String::from(it))
                             .collect::<Vec<String>>();
 
-                        let mut entry = imports.entry(parts[1].clone()).or_insert(vec![]);
-                        entry.push(parts[3].clone());
+                        imports.push(Import {
+                            import_type: parts[3].clone(),
+                            file: parts[1].clone(),
+                        });
 
                         fields.push(Field {
                             name: f_name.clone(),
@@ -170,27 +226,127 @@ fn generate_model(name: &str, spec: &SchemaSpec) -> Option<ModelFile> {
                 }
             }
 
-            let imports = imports
-                .into_iter()
-                .map(|(file, types)| Import { file, types })
-                .collect::<Vec<Import>>();
-
-            Some(ModelFile::Struct {
+            models.push((namespace, Model::Struct {
                 name: String::from(name),
-                imports,
                 fields,
+            }));
+
+            (models, imports)
+        },
+        _ => (models, imports),
+    }
+}
+
+fn generate_field(
+    name: &str,
+    spec: &SchemaSpec,
+    namespace: Option<String>,
+) -> (Option<Field>, Vec<(Option<String>, Model)>, Vec<Import>) {
+    let mut models = Vec::new();
+    let mut imports = Vec::new();
+
+    if !spec.schema_enum.is_empty() {
+        match spec.schema_type.as_ref().map(|it| it.as_str()) {
+            Some("string") | None => {
+                models.push((namespace.clone(), Model::Enum {
+                    name: String::from(name),
+                    variants: spec.schema_enum.iter().map(|it| {
+                        EnumVariant {
+                            name: it.clone(),
+                            value: it.clone(),
+                        }
+                    }).collect()
+                }));
+
+                let result = Field {
+                    name: String::from(name),
+                    field_type: namespace.clone().map_or_else(
+                        || case::pascal_case(name),
+                        |ref parent| format!(
+                            "{}.{}",
+                            case::pascal_case(parent),
+                            case::pascal_case(name)
+                        ),
+                    ),
+                    required: false,
+                    is_array: false,
+                };
+
+                return (Some(result), models, imports);
+            },
+            Some("number") => {
+                println!("skipping {}, number enums are not supported", name);
+            },
+            Some(other) => {
+                println!(
+                    "skipping {}, invalid model type for enum: {}",
+                    name, other,
+                );
+            },
+        }
+
+        return (None, models, imports);
+    }
+
+    let result = match spec.schema_type.as_ref().map(|it| it.as_str()) {
+        Some("number") | Some("string") => {
+            if !spec.schema_enum.is_empty() {
+                let (field, enum_model, _) = generate_field(name, spec, namespace.clone());
+                models.extend(enum_model.into_iter());
+                field
+            } else {
+                Some(Field {
+                    name: String::from(name),
+                    required: false,
+                    field_type: spec.schema_type.clone().unwrap(),
+                    is_array: false,
+                })
+            }
+        },
+        Some("array") => {
+            let (item_models, items_imports) = generate_model(
+                "Item", spec, namespace.clone(),
+            );
+
+            let item_model = item_models[0].clone();
+            imports.extend(items_imports.into_iter());
+
+            Some(Field {
+                name: String::from(name),
+                required: false,
+                field_type: item_model.1.name(),
+                is_array: true,
+            })
+        },
+        Some("object") => {
+            Some(Field {
+                name: String::from(name),
+                required: false,
+                // TODO(hilmar): Generate nested object
+                field_type: String::from("any"),
+                is_array: false,
             })
         },
         _ => None,
-    }
+    };
+
+    (result, models, imports)
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ModelFile {
+    imports: Vec<GroupedImport>,
+    root: Model,
+    nested: HashMap<String, Vec<Model>>,
 }
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type")]
-enum ModelFile {
+enum Model {
     Alias {
         name: String,
         alias: String,
+        is_array: bool,
     },
     Enum {
         name: String,
@@ -198,18 +354,27 @@ enum ModelFile {
     },
     Struct {
         name: String,
-        imports: Vec<Import>,
         fields: Vec<Field>,
     },
+}
+
+impl Model {
+    fn name(&self) -> String {
+        match self {
+            Model::Alias { ref name, .. } => name.clone(),
+            Model::Enum { ref name, .. } => name.clone(),
+            Model::Struct { ref name, .. } => name.clone(),
+        }
+    }
 }
 
 impl TemplateContext for ModelFile {
     fn template(&self) -> &'static str { "model.tera" }
     fn filename(&self) -> String {
-        match self {
-            ModelFile::Alias { name, .. } => format!("{}.ts", case::kebab_case(name)),
-            ModelFile::Enum { name, .. } => format!("{}.ts", case::kebab_case(name)),
-            ModelFile::Struct { name, .. } => format!("{}.ts", case::kebab_case(name)),
+        match self.root {
+            Model::Alias { ref name, .. } => format!("{}.ts", case::kebab_case(name)),
+            Model::Enum { ref name, .. } => format!("{}.ts", case::kebab_case(name)),
+            Model::Struct { ref name, .. } => format!("{}.ts", case::kebab_case(name)),
         }
     }
 }
@@ -226,6 +391,12 @@ impl TemplateContext for IndexFile {
 
 #[derive(Clone, Debug, Serialize)]
 struct Import {
+    pub import_type: String,
+    pub file: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct GroupedImport {
     pub types: Vec<String>,
     pub file: String,
 }

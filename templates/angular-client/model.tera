@@ -6,21 +6,21 @@ import { {% for t in import.types %} {{ t }}, {% endfor %} } from "../{{ import.
 {% endfor %}
 {% endif %}
 
-{% if type == "Alias" %}
-export type {{ name }} = {{ alias }}
+{% if root.type == "Alias" %}
+export type {{ root.name }} = {{ root.alias }}
 
-{% elif type == "Enum" %}
-export enum {{ name }} {
-    {% for variant in variants -%}
+{% elif root.type == "Enum" %}
+export enum {{ root.name }} {
+    {% for variant in root.variants -%}
     {{ variant.name }} = "{{ variant.value }}",
-    {%- endfor %}
+    {% endfor %}
 }
 
-{% elif type == "Struct" %}
-export interface {{ name }} {
-    {% for field in fields -%}
+{% elif root.type == "Struct" %}
+export interface {{ root.name }} {
+    {% for field in root.fields -%}
     {{ field.name }}{% if not field.required %}?{% endif %}: {{ field.field_type }},
-    {%- endfor %}
+    {% endfor %}
 }
 
 {% endif %}
