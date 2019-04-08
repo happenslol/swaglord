@@ -7,7 +7,11 @@ import { {% for t in import.types %} {{ t }}, {% endfor %} } from "../{{ import.
 {% endif %}
 
 {% if root.type == "Alias" %}
+{% if root.is_array %}
+export type {{ root.name }} = Array<{{ root.alias }}>
+{% else %}
 export type {{ root.name }} = {{ root.alias }}
+{% endif %}
 
 {% elif root.type == "Enum" %}
 export enum {{ root.name }} {
@@ -19,9 +23,38 @@ export enum {{ root.name }} {
 {% elif root.type == "Struct" %}
 export interface {{ root.name }} {
     {% for field in root.fields -%}
+    {% if field.is_array %}
+    {{ field.name }}{% if not field.required %}?{% endif %}: Array<{{ field.field_type }}>,
+    {% else %}
     {{ field.name }}{% if not field.required %}?{% endif %}: {{ field.field_type }},
+    {% endif %}
     {% endfor %}
 }
 
 {% endif %}
+
+{% for namespace, models in nested %}
+namespace {{ namespace }} {
+{% for model in models %}
+    {% if model.type == "Alias" %}
+    export type {{ model.name }} = {{ model.alias }}
+
+    {% elif model.type == "Enum" %}
+    export enum {{ model.name }} {
+        {% for variant in model.variants -%}
+        {{ variant.name }} = "{{ variant.value }}",
+        {% endfor %}
+    }
+
+    {% elif model.type == "Struct" %}
+    export interface {{ model.name }} {
+        {% for field in model.fields -%}
+        {{ field.name }}{% if not field.required %}?{% endif %}: {{ field.field_type }},
+        {% endfor %}
+    }
+    {% endif %}
+
+{% endfor %}
+}
+{% endfor %}
 

@@ -51,6 +51,7 @@ pub struct ComponentsSpec {
     pub parameters: BTreeMap<String, RefOr<ParameterSpec>>,
 
     #[serde(rename = "requestBodies")]
+    #[serde(default)]
     pub request_bodies: BTreeMap<String, RefOr<RequestBodySpec>>,
 
     #[serde(default)]

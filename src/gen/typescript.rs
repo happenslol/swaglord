@@ -27,12 +27,13 @@ impl Generator for TypescriptGenerator {
         util::write_templates(&templates, &models, Some("components")).unwrap();
         util::write_templates(&templates, &vec![model_index], Some("components")).unwrap();
 
-        let server = spec.servers.iter().next().unwrap();
+        let server = spec.servers.iter().next().expect("No servers");
         let services = generate_services(
             &case::kebab_case(&spec.info.title),
             &server.url,
             &spec.tags, &spec.paths,
         );
+
         let service_files = services.iter().map(|it| it.filename()).collect();
         let service_index = IndexFile { exports: service_files };
 
@@ -55,13 +56,16 @@ fn generate_services(
 
     for (name, spec) in paths.iter() {}
 
+    let client_name_kebab = case::kebab_case(client_name);
+    let client_name_pascal = case::pascal_case(client_name);
+
     tag_map
         .into_iter()
         .map(|(tag_name, (endpoints, imports))| {
             ServiceFile {
                 name: format!("{}Service", case::pascal_case(&tag_name)),
-                client_name_kebab: case::kebab_case(client_name),
-                client_name_pascal: case::pascal_case(client_name),
+                client_name_kebab: client_name_kebab.clone(),
+                client_name_pascal: client_name_pascal.clone(),
                 base_path: String::from(base_path),
                 endpoints, imports,
             }
@@ -75,53 +79,58 @@ fn generate_models(
     let mut result = vec![];
 
     for (name, spec) in model_specs {
-        match spec {
-            RefOr::Object(ref spec) => {
-                let (models, imports) = generate_model(&name, spec, None);
+        let (models, imports) = generate_model(&name, &spec, None);
+        println!("result: {:?}", models);
 
-                let root = models[0].clone().1;
-                let mut nested: HashMap<String, Vec<Model>> = HashMap::new();
-                for (namespace, _) in models.iter().skip(1) {
-                    if let Some(namespace) = namespace.clone() {
-                        let children = models.iter()
-                            .filter(|(namespace, _)| namespace == namespace)
-                            .cloned()
-                            .map(|(_, model)| model)
-                            .collect();
+        let root = models[0].clone().1;
+        let mut nested: HashMap<String, Vec<Model>> = HashMap::new();
+        for (namespace, model) in models.into_iter().skip(1) {
+            let namespace = namespace.expect("child should have namespace!");
+            nested.entry(namespace).or_insert(vec![]).push(model);
+        }
 
-                        nested.insert(namespace, children);
-                    }
-                }
+        let mut imports_map: HashMap<String, Vec<String>> = HashMap::new();
+        for import in imports {
+            let mut entry = imports_map.entry(import.file.clone()).or_insert(vec![]);
+            if (!entry.iter().any(|it| it == &import.import_type)) {
+                entry.push(String::from(import.import_type));
+            }
+        }
 
-                let mut imports_map: HashMap<String, Vec<String>> = HashMap::new();
-                for import in imports {
-                    let mut entry = imports_map.entry(import.file.clone()).or_insert(vec![]);
-                    if (!entry.iter().any(|it| it == &import.import_type)) {
-                        entry.push(String::from(import.import_type));
-                    }
-                }
+        let imports = imports_map
+            .into_iter()
+            .map(|(file, types)| GroupedImport { file, types })
+            .collect();
 
-                let imports = imports_map
-                    .into_iter()
-                    .map(|(file, types)| GroupedImport { file, types })
-                    .collect();
-
-                result.push(ModelFile {
-                    imports, root, nested,
-                });
-            },
-            RefOr::Ref { .. } => println!("skipping {}, ref at base", name),
-        };
+        result.push(ModelFile {
+            imports, root, nested,
+        });
     }
 
     result
 }
 
+fn get_ref(path: &String) -> (String, Import) {
+    let parts = path
+        .split("/")
+        .map(|it| String::from(it))
+        .collect::<Vec<String>>();
+
+    let import = Import {
+        import_type: parts[3].clone(),
+        file: parts[1].clone(),
+    };
+
+    (parts[3].clone(), import)
+}
+
 fn generate_model(
     name: &str,
-    spec: &SchemaSpec,
+    spec: &RefOr<SchemaSpec>,
     namespace: Option<String>,
 ) -> (Vec<(Option<String>, Model)>, Vec<Import>) {
+    println!("generating {} in namespace {:?}", name, namespace);
+
     let mut models = Vec::new();
     let mut imports = Vec::new();
 
@@ -130,207 +139,193 @@ fn generate_model(
         |parent| format!("{}.{}", parent, case::pascal_case(name)),
     );
 
-    if !spec.schema_enum.is_empty() {
-        let (_, enum_model, _) = generate_field(name, spec, None);
-        return (enum_model, imports);
-    }
-
-    match spec.schema_type.as_ref().map(|it| it.as_str()) {
-        // base case
-        Some("string") | Some("number") => {
+    match spec {
+        RefOr::Ref { ref ref_path } => {
+            let (ref_type, import) = get_ref(ref_path);
+            println!("\tfound ref {}", ref_type);
+            imports.push(import);
             models.push((namespace, Model::Alias {
                 name: String::from(name),
-                alias: spec.schema_type.clone().unwrap(),
+                alias: ref_type,
                 is_array: false,
             }));
 
             (models, imports)
         },
-        Some("array") => {
-            match spec.items {
-                Some(RefOr::Object(ref spec)) => {
-                    let (item_models, items_imports) = generate_model(
-                        "Item", spec, Some(child_namespace.clone()),
-                    );
+        RefOr::Object(ref spec) => {
+            // base case: enum at current level
+            if !spec.schema_enum.is_empty() {
+                println!("\tfound enum");
+                match spec.schema_type.as_ref().map(|it| it.as_str()) {
+                    Some("string") | None => {
+                        models.push((namespace, Model::Enum {
+                            name: String::from(name),
+                            variants: spec.schema_enum.iter().map(|it| {
+                                EnumVariant {
+                                    name: it.clone(),
+                                    value: it.clone(),
+                                }
+                            }).collect()
+                        }));
 
-                    let item_model = item_models[0].clone();
-
-                    models.push((namespace, Model::Alias {
-                        name: String::from(name),
-                        alias: format!("{}.Item", child_namespace),
-                        is_array: true,
-                    }));
-
-                    imports.extend(items_imports.into_iter());
-                },
-                Some(RefOr::Ref { ref ref_path }) => {
-                    let parts = ref_path
-                        .split("/")
-                        .map(|it| String::from(it))
-                        .collect::<Vec<String>>();
-
-                    imports.push(Import {
-                        import_type: parts[3].clone(),
-                        file: parts[1].clone(),
-                    });
-
-                    models.push((namespace, Model::Alias {
-                        name: String::from(name),
-                        alias: String::from(name),
-                        is_array: true,
-                    }));
-                },
-                None => {
-                    println!(
-                        "skipping array {:?}:{} since items field was not present!",
-                        namespace, name,
-                    );
-                },
-            }
-
-            (models, imports)
-        },
-        Some("object") => {
-            let mut fields = vec![];
-
-            for (f_name, f_spec) in spec.properties.iter() {
-                match f_spec {
-                    RefOr::Object(spec) => {
-                        let (field, field_models, field_imports) =
-                            generate_field(&f_name, spec, namespace.clone());
-
-                        if let Some(field) = field {
-                            fields.push(field);
-                            models.extend(field_models.into_iter());
-                            imports.extend(field_imports.into_iter());
-                        }
+                        return (models, imports);
                     },
-                    RefOr::Ref { ref_path } => {
-                        let parts = ref_path
-                            .split("/")
-                            .map(|it| String::from(it))
-                            .collect::<Vec<String>>();
-
-                        imports.push(Import {
-                            import_type: parts[3].clone(),
-                            file: parts[1].clone(),
-                        });
-
-                        fields.push(Field {
-                            name: f_name.clone(),
-                            required: spec.required.iter().any(|it| it == f_name),
-                            field_type: parts[3].clone(),
-                            is_array: false,
-                        });
+                    Some("number") => {
+                        println!(
+                            "skipping {}, number enums are not supported",
+                            name
+                        );
+                    },
+                    Some(other) => {
+                        println!(
+                            "skipping {}, invalid model type for enum: {}",
+                            name, other,
+                        );
                     },
                 }
+
+                return (models, imports);
             }
 
-            models.push((namespace, Model::Struct {
-                name: String::from(name),
-                fields,
-            }));
+            match spec.schema_type.as_ref().map(|it| it.as_str()) {
+                // base case
+                // TODO(hilmar): Respect format!
+                Some("string") | Some("number") => {
+                    println!("\tfound primitive {:?}", spec.schema_type);
+                    models.push((namespace, Model::Alias {
+                        name: String::from(name),
+                        alias: spec.schema_type.clone().unwrap(),
+                        is_array: false,
+                    }));
 
-            (models, imports)
-        },
-        _ => (models, imports),
-    }
-}
+                    (models, imports)
+                },
+                Some("array") => {
+                    println!("\tfound array");
+                    match spec.items {
+                        Some(ref spec) => {
+                            // this is needed due to the box
+                            let spec = spec.clone();
+                            let (item_models, item_imports) = match spec {
+                                RefOr::Object(obj) => generate_model(
+                                    "Item",
+                                    &RefOr::Object(*obj),
+                                    Some(child_namespace.clone()),
+                                ),
+                                RefOr::Ref { ref_path } => generate_model(
+                                    "Item",
+                                    &RefOr::Ref { ref_path },
+                                    Some(child_namespace.clone()),
+                                ),
+                            };
 
-fn generate_field(
-    name: &str,
-    spec: &SchemaSpec,
-    namespace: Option<String>,
-) -> (Option<Field>, Vec<(Option<String>, Model)>, Vec<Import>) {
-    let mut models = Vec::new();
-    let mut imports = Vec::new();
+                            let (_, item_model) = item_models[0].clone();
 
-    if !spec.schema_enum.is_empty() {
-        match spec.schema_type.as_ref().map(|it| it.as_str()) {
-            Some("string") | None => {
-                models.push((namespace.clone(), Model::Enum {
-                    name: String::from(name),
-                    variants: spec.schema_enum.iter().map(|it| {
-                        EnumVariant {
-                            name: it.clone(),
-                            value: it.clone(),
+                            match item_model {
+                                // this means a base case happened
+                                Model::Alias { ref alias, is_array, .. } => {
+                                    if (is_array) {
+                                        panic!("can't have nested array fields at the moment");
+                                    }
+
+                                    models.push((namespace, Model::Alias {
+                                        name: String::from(name),
+                                        alias: alias.clone(),
+                                        is_array: true,
+                                    }));
+
+                                    models.extend(item_models.into_iter().skip(1));
+                                    imports.extend(item_imports.into_iter());
+                                },
+                                // this means we generated children
+                                _ => {
+                                    models.push((namespace, Model::Alias {
+                                        name: String::from(name),
+                                        alias: format!(
+                                            "{}.{}",
+                                            child_namespace.clone(),
+                                            item_model.name()
+                                        ),
+                                        is_array: true,
+                                    }));
+
+                                    models.extend(item_models.into_iter());
+                                    imports.extend(item_imports.into_iter());
+                                },
+                            }
+                        },
+                        None => {
+                            println!(
+                                "skipping array {:?}:{} since items field was not present!",
+                                namespace, name,
+                            );
+                        },
+                    }
+
+                    (models, imports)
+                },
+                Some("object") => {
+                    println!("\tfound object");
+                    let mut fields = vec![];
+                    let mut sub_models = vec![];
+
+                    for (field_name, field_spec) in spec.properties.iter() {
+                        println!("\tprocessing field {}", field_name);
+                        let (field_models, field_imports) = generate_model(
+                            &case::pascal_case(field_name), field_spec, 
+                            Some(child_namespace.clone()),
+                        );
+
+                        // ignore namespace
+                        let (_, field_model) = field_models.iter().cloned().nth(0)
+                            .expect("no first model");
+
+                        match field_model {
+                            // this means a base case happened
+                            Model::Alias { ref alias, is_array, .. } => {
+                                fields.push(Field {
+                                    name: field_name.clone(),
+                                    field_type: alias.clone(),
+                                    required: spec.required.iter()
+                                        .any(|r| r == field_name),
+                                    is_array,
+                                });
+
+                                sub_models.extend(field_models.into_iter().skip(1));
+                                imports.extend(field_imports.into_iter());
+                            },
+                            // this means we generated children
+                            _ => {
+                                fields.push(Field {
+                                    name: field_name.clone(),
+                                    field_type: format!(
+                                        "{}.{}",
+                                        child_namespace.clone(),
+                                        field_model.name()
+                                    ),
+                                    required: spec.required.iter()
+                                        .any(|r| r == field_name),
+                                    is_array: false,
+                                });
+
+                                sub_models.extend(field_models.into_iter());
+                                imports.extend(field_imports.into_iter());
+                            },
                         }
-                    }).collect()
-                }));
+                    }
 
-                let result = Field {
-                    name: String::from(name),
-                    field_type: namespace.clone().map_or_else(
-                        || case::pascal_case(name),
-                        |ref parent| format!(
-                            "{}.{}",
-                            case::pascal_case(parent),
-                            case::pascal_case(name)
-                        ),
-                    ),
-                    required: false,
-                    is_array: false,
-                };
+                    models.push((namespace, Model::Struct {
+                        name: String::from(name),
+                        fields,
+                    }));
+                    models.extend(sub_models.into_iter());
 
-                return (Some(result), models, imports);
-            },
-            Some("number") => {
-                println!("skipping {}, number enums are not supported", name);
-            },
-            Some(other) => {
-                println!(
-                    "skipping {}, invalid model type for enum: {}",
-                    name, other,
-                );
-            },
-        }
-
-        return (None, models, imports);
-    }
-
-    let result = match spec.schema_type.as_ref().map(|it| it.as_str()) {
-        Some("number") | Some("string") => {
-            if !spec.schema_enum.is_empty() {
-                let (field, enum_model, _) = generate_field(name, spec, namespace.clone());
-                models.extend(enum_model.into_iter());
-                field
-            } else {
-                Some(Field {
-                    name: String::from(name),
-                    required: false,
-                    field_type: spec.schema_type.clone().unwrap(),
-                    is_array: false,
-                })
+                    (models, imports)
+                },
+                _ => (models, imports),
             }
         },
-        Some("array") => {
-            let (item_models, items_imports) = generate_model(
-                "Item", spec, namespace.clone(),
-            );
-
-            let item_model = item_models[0].clone();
-            imports.extend(items_imports.into_iter());
-
-            Some(Field {
-                name: String::from(name),
-                required: false,
-                field_type: item_model.1.name(),
-                is_array: true,
-            })
-        },
-        Some("object") => {
-            Some(Field {
-                name: String::from(name),
-                required: false,
-                // TODO(hilmar): Generate nested object
-                field_type: String::from("any"),
-                is_array: false,
-            })
-        },
-        _ => None,
-    };
-
-    (result, models, imports)
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]

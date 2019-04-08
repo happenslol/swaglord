@@ -1,0 +1,88 @@
+openapi: 3.0.0
+info:
+  title: SwagTest
+  description: SwagTest documentation
+  version: '1.0'
+  termsOfService: 'https://example.org'
+  contact: {}
+  license:
+    name: Apache 2.0
+    url: 'http://www.apache.org/licenses/LICENSE-2.0'
+
+servers:
+  - url: //lightning-backend.acomodeo.com/api
+
+components:
+  schemas:
+
+    Locale:
+      description: ISO standard locale/country string
+      type: string
+
+    Address:
+      description: Standard street address
+      type: object
+      properties:
+        company:
+          description: Optional company part of address
+          example: Super Comapny Inc.
+          type: string
+        countries:
+          description: Country as 2-letter ISO code
+          example: US
+          type: array
+          items:
+            type: string
+      required:
+        - countries
+
+    Tax:
+      type: object
+      properties:
+        test:
+          type: array
+          items:
+            type: object
+            properties:
+              hello:
+                type: string
+        type:
+          description: Tax type
+          example: City Tax
+          type: string
+        amount:
+          title: TaxAmount
+          type: object
+          properties:
+            value:
+              description: Amount as number without a unit
+              example: 19
+              type: number
+            unit:
+              description: Unit of the amount (percent or currency)
+              example: percent
+              type: string
+              enum:
+                - percent
+                - currency
+        chargeBase:
+          description: The multiplier that is used to calculate the tax
+          example: perPersonPerNight
+          type: string
+          enum:
+            - perStay
+            - perPersonPerStay
+            - perPersonPerNight
+      required:
+        - type
+        - amount
+
+    BillRequest:
+      type: object
+      properties:
+        booking:
+          $ref: '#/components/schemas/Booking'
+        openBills:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilerBill'
