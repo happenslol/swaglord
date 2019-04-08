@@ -34,7 +34,7 @@ export interface {{ root.name }} {
 {% endif %}
 
 {% for namespace, models in nested %}
-namespace {{ namespace }} {
+export namespace {{ namespace }} {
 {% for model in models %}
     {% if model.type == "Alias" %}
     export type {{ model.name }} = {{ model.alias }}

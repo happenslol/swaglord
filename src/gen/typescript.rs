@@ -11,23 +11,87 @@ use crate::{
 pub struct TypescriptGenerator;
 impl Generator for TypescriptGenerator {
     fn generate(spec: &OpenApiSpec) {
-        let models = spec.components.as_ref()
-            .map_or_else(|| vec![], |it| generate_models(&it.schemas));
-
         let templates = util::load_templates("angular-client").unwrap();
 
+        let schema_models = spec.components.as_ref()
+            .map_or_else(|| vec![], |it| generate_models(&it.schemas));
+        let schema_files: Vec<String> = schema_models.iter()
+            .map(|it| it.filename()).collect();
 
-        let model_files: Vec<String> = models.iter().map(|it| it.filename()).collect();
-        let model_index = IndexFile {
-            exports: model_files.iter()
-                .map(|it| it.trim_end_matches(".ts").to_owned())
-                .collect(),
-        };
+        if !schema_files.is_empty() {
+            let schema_index = IndexFile {
+                exports: schema_files.iter()
+                    .map(|it| it.trim_end_matches(".ts").to_owned())
+                    .collect(),
+            };
 
-        util::write_templates(&templates, &models, Some("components")).unwrap();
-        util::write_templates(&templates, &vec![model_index], Some("components")).unwrap();
+            util::write_templates(&templates, &schema_models, Some("schemas")).unwrap();
+            util::write_templates(&templates, &vec![schema_index], Some("schemas")).unwrap();
+        }
 
-        let server = spec.servers.iter().next().expect("No servers");
+        let response_models = spec.components.as_ref().map_or_else(|| vec![], |it| {
+            // discard everything that doesn't contain a json body
+            let mut response_specs = BTreeMap::new();
+            it.responses.iter()
+                .filter_map(|(name, spec)| match spec {
+                    RefOr::Object(obj) => obj.content
+                        .get("application/json")
+                        .clone()
+                        .map(|it| (name.clone(), RefOr::Object(it.schema.clone()))),
+                    RefOr::Ref { ref_path } => Some(
+                        (name.clone(), RefOr::Ref { ref_path: ref_path.clone() }),
+                    ),
+                })
+                .for_each(|(name, spec)| { response_specs.insert(name, spec); });
+
+            generate_models(&response_specs)
+        });
+        let response_files: Vec<String> = response_models.iter()
+            .map(|it| it.filename()).collect();
+
+        if !response_files.is_empty() {
+            let response_index = IndexFile {
+                exports: response_files.iter()
+                    .map(|it| it.trim_end_matches(".ts").to_owned())
+                    .collect(),
+            };
+
+            util::write_templates(&templates, &response_models, Some("responses")).unwrap();
+            util::write_templates(&templates, &vec![response_index], Some("responses")).unwrap();
+        }
+
+        let request_models = spec.components.as_ref().map_or_else(|| vec![], |it| {
+            // discard everything that doesn't contain a json body
+            let mut request_specs = BTreeMap::new();
+            it.request_bodies.iter()
+                .filter_map(|(name, spec)| match spec {
+                    RefOr::Object(obj) => obj.content
+                        .get("application/json")
+                        .clone()
+                        .map(|it| (name.clone(), RefOr::Object(it.schema.clone()))),
+                    RefOr::Ref { ref_path } => Some(
+                        (name.clone(), RefOr::Ref { ref_path: ref_path.clone() }),
+                    ),
+                })
+                .for_each(|(name, spec)| { request_specs.insert(name, spec); });
+
+            generate_models(&request_specs)
+        });
+        let request_files: Vec<String> = request_models.iter()
+            .map(|it| it.filename()).collect();
+
+        if !request_files.is_empty() {
+            let request_index = IndexFile {
+                exports: request_files.iter()
+                    .map(|it| it.trim_end_matches(".ts").to_owned())
+                    .collect(),
+            };
+
+            util::write_templates(&templates, &request_models, Some("request-bodies")).unwrap();
+            util::write_templates(&templates, &vec![request_index], Some("request-bodies")).unwrap();
+        }
+
+        let server = spec.servers.iter().next().expect("no servers");
         let services = generate_services(
             &case::kebab_case(&spec.info.title),
             &server.url,
@@ -73,9 +137,7 @@ fn generate_services(
         .collect()
 }
 
-fn generate_models(
-    model_specs: &BTreeMap<String, RefOr<SchemaSpec>>,
-) -> Vec<ModelFile> {
+fn generate_models(model_specs: &BTreeMap<String, RefOr<SchemaSpec>>) -> Vec<ModelFile> {
     let mut result = vec![];
 
     for (name, spec) in model_specs {
@@ -116,7 +178,8 @@ fn get_ref(path: &String) -> (String, Import) {
         .collect::<Vec<String>>();
 
     let import = Import {
-        import_type: parts[3].clone(),
+        // requestBodies -> request-bodies, everything else is the same
+        import_type: case::kebab_case(&parts[3]),
         file: parts[1].clone(),
     };
 

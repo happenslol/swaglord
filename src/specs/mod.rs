@@ -82,21 +82,30 @@ pub struct SchemaSpec {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ResponseSpec {
-    description: Option<String>,
-    headers: BTreeMap<String, HeaderSpec>,
-    content: BTreeMap<String, MediaTypeSpec>,
+    pub description: Option<String>,
+    pub headers: BTreeMap<String, HeaderSpec>,
+    pub content: BTreeMap<String, MediaTypeSpec>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct MediaTypeSpec {
-    schema: SchemaSpec,
+    pub schema: SchemaSpec,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ParameterSpec {}
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct RequestBodySpec {}
+pub struct RequestBodySpec {
+    #[serde(default)]
+    pub description: Option<String>,
+
+    #[serde(default)]
+    pub content: BTreeMap<String, MediaTypeSpec>,
+
+    #[serde(default)]
+    pub required: bool,
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct HeaderSpec {}
