@@ -80,7 +80,6 @@ fn generate_models(
 
     for (name, spec) in model_specs {
         let (models, imports) = generate_model(&name, &spec, None);
-        println!("result: {:?}", models);
 
         let root = models[0].clone().1;
         let mut nested: HashMap<String, Vec<Model>> = HashMap::new();
@@ -129,8 +128,6 @@ fn generate_model(
     spec: &RefOr<SchemaSpec>,
     namespace: Option<String>,
 ) -> (Vec<(Option<String>, Model)>, Vec<Import>) {
-    println!("generating {} in namespace {:?}", name, namespace);
-
     let mut models = Vec::new();
     let mut imports = Vec::new();
 
@@ -142,7 +139,6 @@ fn generate_model(
     match spec {
         RefOr::Ref { ref ref_path } => {
             let (ref_type, import) = get_ref(ref_path);
-            println!("\tfound ref {}", ref_type);
             imports.push(import);
             models.push((namespace, Model::Alias {
                 name: String::from(name),
@@ -155,7 +151,6 @@ fn generate_model(
         RefOr::Object(ref spec) => {
             // base case: enum at current level
             if !spec.schema_enum.is_empty() {
-                println!("\tfound enum");
                 match spec.schema_type.as_ref().map(|it| it.as_str()) {
                     Some("string") | None => {
                         models.push((namespace, Model::Enum {
@@ -191,7 +186,6 @@ fn generate_model(
                 // base case
                 // TODO(hilmar): Respect format!
                 Some("string") | Some("number") => {
-                    println!("\tfound primitive {:?}", spec.schema_type);
                     models.push((namespace, Model::Alias {
                         name: String::from(name),
                         alias: spec.schema_type.clone().unwrap(),
@@ -201,7 +195,6 @@ fn generate_model(
                     (models, imports)
                 },
                 Some("array") => {
-                    println!("\tfound array");
                     match spec.items {
                         Some(ref spec) => {
                             // this is needed due to the box
@@ -265,12 +258,10 @@ fn generate_model(
                     (models, imports)
                 },
                 Some("object") => {
-                    println!("\tfound object");
                     let mut fields = vec![];
                     let mut sub_models = vec![];
 
                     for (field_name, field_spec) in spec.properties.iter() {
-                        println!("\tprocessing field {}", field_name);
                         let (field_models, field_imports) = generate_model(
                             &case::pascal_case(field_name), field_spec, 
                             Some(child_namespace.clone()),
