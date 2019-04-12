@@ -1,3 +1,0 @@
-{{- define "model-alias" }}
-export type {{ .Class }} = {{ .AliasType }}
-{{- end }}

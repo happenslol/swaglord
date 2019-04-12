@@ -28,10 +28,10 @@ export class {{ name }} {
     {% if body_param %}
         {{ body_param.name }}{% if not body_param.required %}?{% endif %}: {{ body_param.field_type }},
     {% endif %}
-    {% for param in query_params %}
+    {% for param in endpoint.query_params %}
         {{ param.name }}{% if not param.required %}?{% endif %}: {{ param.field_type }},
     {% endfor %}
-    {% for param in header_params %}
+    {% for param in endpoint.header_params %}
         {{ param.name }}{% if not param.required %}?{% endif %}: {{ param.field_type }},
     {% endfor %}
         observe?: 'body',
@@ -42,10 +42,10 @@ export class {{ name }} {
     {% if body_param %}
         {{ body_param.name }}{% if not body_param.required %}?{% endif %}: {{ body_param.field_type }},
     {% endif %}
-    {% for param in query_params %}
+    {% for param in endpoint.query_params %}
         {{ param.name }}{% if not param.required %}?{% endif %}: {{ param.field_type }},
     {% endfor %}
-    {% for param in header_params %}
+    {% for param in endpoint.header_params %}
         {{ param.name }}{% if not param.required %}?{% endif %}: {{ param.field_type }},
     {% endfor %}
         observe?: 'response',
@@ -56,10 +56,10 @@ export class {{ name }} {
     {% if body_param %}
         {{ body_param.name }}{% if not body_param.required %}?{% endif %}: {{ body_param.field_type }},
     {% endif %}
-    {% for param in query_params %}
+    {% for param in endpoint.query_params %}
         {{ param.name }}{% if not param.required %}?{% endif %}: {{ param.field_type }},
     {% endfor %}
-    {% for param in header_params %}
+    {% for param in endpoint.header_params %}
         {{ param.name }}{% if not param.required %}?{% endif %}: {{ param.field_type }},
     {% endfor %}
         observe?: 'progress',

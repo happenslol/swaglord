@@ -1,6 +1,0 @@
-export * from './api'
-export * from './model'
-export * from './variables'
-export * from './{{ clientNameLower }}-client.config'
-export * from './{{ clientNameLower }}-client.module'
-export * from './util'

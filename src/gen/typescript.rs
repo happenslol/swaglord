@@ -3,7 +3,7 @@ use serde_derive::Serialize;
 use voca_rs::case;
 use std::fmt::Debug;
 use crate::{
-    specs::{OpenApiSpec, SchemaSpec, RefOr, PathSpec, TagSpec},
+    specs::{OpenApiSpec, SchemaSpec, RefOr, PathSpec, TagSpec, OperationSpec},
     gen::{Generator, TemplateContext},
     util,
 };
@@ -33,14 +33,10 @@ impl Generator for TypescriptGenerator {
             // discard everything that doesn't contain a json body
             let mut response_specs = BTreeMap::new();
             it.responses.iter()
-                .filter_map(|(name, spec)| match spec {
-                    RefOr::Object(obj) => obj.content
-                        .get("application/json")
-                        .clone()
-                        .map(|it| (name.clone(), RefOr::Object(it.schema.clone()))),
-                    RefOr::Ref { ref_path } => Some(
-                        (name.clone(), RefOr::Ref { ref_path: ref_path.clone() }),
-                    ),
+                .filter_map(|(name, spec)| {
+                    if let Some(spec) = spec.maybe_map_cloned(|it| {
+                        it.content.get("application/json").map(|it| it.schema.clone())
+                    }) { Some((name.clone(), spec)) } else { None }
                 })
                 .for_each(|(name, spec)| { response_specs.insert(name, spec); });
 
@@ -64,14 +60,10 @@ impl Generator for TypescriptGenerator {
             // discard everything that doesn't contain a json body
             let mut request_specs = BTreeMap::new();
             it.request_bodies.iter()
-                .filter_map(|(name, spec)| match spec {
-                    RefOr::Object(obj) => obj.content
-                        .get("application/json")
-                        .clone()
-                        .map(|it| (name.clone(), RefOr::Object(it.schema.clone()))),
-                    RefOr::Ref { ref_path } => Some(
-                        (name.clone(), RefOr::Ref { ref_path: ref_path.clone() }),
-                    ),
+                .filter_map(|(name, spec)| {
+                    if let Some(spec) = spec.maybe_map_cloned(|it| {
+                        it.content.get("application/json").map(|it| it.schema.clone())
+                    }) { Some((name.clone(), spec)) } else { None }
                 })
                 .for_each(|(name, spec)| { request_specs.insert(name, spec); });
 
@@ -91,7 +83,7 @@ impl Generator for TypescriptGenerator {
             util::write_templates(&templates, &vec![request_index], Some("request-bodies")).unwrap();
         }
 
-        let server = spec.servers.iter().next().expect("no servers");
+        let server = spec.servers.iter().nth(0).expect("no servers");
         let services = generate_services(
             &case::kebab_case(&spec.info.title),
             &server.url,
@@ -112,29 +104,174 @@ fn generate_services(
     tags: &Vec<TagSpec>,
     paths: &BTreeMap<String, PathSpec>,
 ) -> Vec<ServiceFile> {
-    let mut tag_map: HashMap<String, (Vec<Endpoint>, Vec<Import>)> = HashMap::new();
+    let mut tag_map = HashMap::new();
 
     for tag in tags.iter() {
-        tag_map.insert(tag.name.clone(), (vec![], vec![]));
+        tag_map.insert(tag.name.clone(), (vec![], vec![], vec![]));
     }
 
-    for (name, spec) in paths.iter() {}
+    for (path, spec) in paths.iter() {
+        let mut ops = Vec::new();
+        if let Some(ref get_op) = spec.get { ops.push(("get", get_op.clone())); }
+        if let Some(ref post_op) = spec.post { ops.push(("post", post_op.clone())); }
+        if let Some(ref put_op) = spec.put { ops.push(("put", put_op.clone())); }
+        if let Some(ref patch_op) = spec.patch { ops.push(("patch", patch_op.clone())); }
+        if let Some(ref delete_op) = spec.delete { ops.push(("delete", delete_op.clone())); }
+        if let Some(ref head_op) = spec.head { ops.push(("head", head_op.clone())); }
+        if let Some(ref trace_op) = spec.trace { ops.push(("trace", trace_op.clone())); }
+        if let Some(ref options_op) = spec.options { ops.push(("options", options_op.clone())); }
+
+        insert_endpoints(&mut tag_map, &path, &ops);
+    }
 
     let client_name_kebab = case::kebab_case(client_name);
     let client_name_pascal = case::pascal_case(client_name);
 
     tag_map
         .into_iter()
-        .map(|(tag_name, (endpoints, imports))| {
+        .map(|(tag_name, (endpoints, models, imports))| {
+        let mut imports_map: HashMap<String, Vec<String>> = HashMap::new();
+            for import in imports {
+                let mut entry = imports_map.entry(import.file.clone()).or_insert(vec![]);
+                if (!entry.iter().any(|it| it == &import.import_type)) {
+                    entry.push(String::from(import.import_type));
+                }
+            }
+
+            let imports = imports_map
+                .into_iter()
+                .map(|(file, types)| GroupedImport { file, types })
+                .collect();
+
             ServiceFile {
                 name: format!("{}Service", case::pascal_case(&tag_name)),
                 client_name_kebab: client_name_kebab.clone(),
                 client_name_pascal: client_name_pascal.clone(),
                 base_path: String::from(base_path),
                 endpoints, imports,
+                models,
+                nested: HashMap::new(),
             }
         })
         .collect()
+}
+
+fn insert_endpoints(
+    tags: &mut HashMap<String, (Vec<Endpoint>, Vec<Model>, Vec<Import>)>,
+    path: &str,
+    ops: &Vec<(&str, OperationSpec)>,
+) {
+    for (method, spec) in ops {
+        if spec.tags.is_empty() {
+            println!("\tskipping untagged operation: {} ({})", spec.operation_id, method);
+            continue;
+        }
+
+        let (ref mut endpoints, ref mut models, ref mut imports) = tags
+            .get_mut(&spec.tags[0]).expect("tag not found");
+
+        let request_body = spec.request_body.clone().map(|request_spec| {
+            let (request_models, request_imports) = generate_model(
+                &format!("{}Request", case::pascal_case(&spec.operation_id)),
+                &request_spec.maybe_map_cloned(|it| {
+                    it.content.get("application/json").map(|it| it.schema.clone())
+                }).expect("no json body!"),
+                None,
+            );
+
+            let root = if !request_models.is_empty() {
+                request_models[0].clone().1
+            } else {
+                panic!("no models generated for request body");
+            };
+
+            imports.extend(request_imports.into_iter());
+            match root {
+                Model::Alias { ref alias, is_array, .. } => {
+                    // TODO
+                    // models.extend(request_models.into_iter().skip(1));
+
+                    Field {
+                        name: alias.clone(),
+                        field_type: alias.clone(),
+                        required: true, // TODO
+                        is_array,
+                    }
+                },
+                _ => {
+                    // TODO
+                    // models.extend(request_models.into_iter());
+
+                    Field {
+                        name: root.name(),
+                        field_type: root.name(),
+                        required: true, // TODO
+                        is_array: false,
+                    }
+                },
+            }
+        });
+
+        let mut query_params = Vec::new();
+        let mut path_params = Vec::new();
+        let mut header_params = Vec::new();
+
+        for param in spec.parameters.iter() {
+            let (param_models, param_imports) = generate_model(
+                &case::pascal_case(&param.name),
+                &param.schema,
+                Some(case::pascal_case(&spec.operation_id)),
+            );
+
+            let root = if !param_models.is_empty() {
+                param_models[0].clone().1
+            } else {
+                panic!("no models generated for param");
+            };
+
+            imports.extend(param_imports.into_iter());
+            let root_field = match root {
+                Model::Alias { ref alias, is_array, .. } => {
+                    // TODO
+                    // models.extend(param_models.into_iter().skip(1));
+
+                    Field {
+                        name: param.name.clone(),
+                        field_type: alias.clone(),
+                        required: param.required,
+                        is_array,
+                    }
+                },
+                _ => {
+                    // TODO
+                    // models.extend(param_models.into_iter());
+
+                    Field {
+                        name: param.name.clone(),
+                        field_type: root.name(),
+                        required: param.required,
+                        is_array: false,
+                    }
+                },
+            };
+
+            match param.location.as_ref() {
+                "query" => query_params.push(root_field),
+                "header" => header_params.push(root_field),
+                "path" => path_params.push(root_field),
+                _ => panic!("unknown param location"),
+            }
+        }
+
+        endpoints.push(Endpoint {
+            name: spec.operation_id.clone(),
+            body_param: request_body,
+            path_params, query_params, header_params,
+            return_type: String::from("undefined"),
+            method: String::from(*method),
+            path: String::from(path),
+        });
+    }
 }
 
 fn generate_models(model_specs: &BTreeMap<String, RefOr<SchemaSpec>>) -> Vec<ModelFile> {
@@ -143,7 +280,13 @@ fn generate_models(model_specs: &BTreeMap<String, RefOr<SchemaSpec>>) -> Vec<Mod
     for (name, spec) in model_specs {
         let (models, imports) = generate_model(&name, &spec, None);
 
-        let root = models[0].clone().1;
+        let root = if !models.is_empty() {
+            models[0].clone().1
+        } else {
+            println!("no models generated from {}", name);
+            continue;
+        };
+
         let mut nested: HashMap<String, Vec<Model>> = HashMap::new();
         for (namespace, model) in models.into_iter().skip(1) {
             let namespace = namespace.expect("child should have namespace!");
@@ -179,8 +322,8 @@ fn get_ref(path: &String) -> (String, Import) {
 
     let import = Import {
         // requestBodies -> request-bodies, everything else is the same
-        import_type: case::kebab_case(&parts[3]),
-        file: parts[1].clone(),
+        import_type: case::pascal_case(&parts[3]),
+        file: case::kebab_case(&parts[2]),
     };
 
     (parts[3].clone(), import)
@@ -466,12 +609,14 @@ struct Field {
 
 #[derive(Clone, Debug, Serialize)]
 struct ServiceFile {
-    pub client_name_pascal: String,
-    pub client_name_kebab: String,
-    pub imports: Vec<Import>,
-    pub name: String,
-    pub base_path: String,
-    pub endpoints: Vec<Endpoint>,
+    client_name_pascal: String,
+    client_name_kebab: String,
+    imports: Vec<GroupedImport>,
+    name: String,
+    base_path: String,
+    endpoints: Vec<Endpoint>,
+    models: Vec<Model>,
+    nested: HashMap<String, Vec<Model>>,
 }
 
 impl TemplateContext for ServiceFile {
@@ -483,10 +628,85 @@ impl TemplateContext for ServiceFile {
 struct Endpoint {
     pub name: String,
     pub body_param: Option<Field>,
+    pub path_params: Vec<Field>,
     pub query_params: Vec<Field>,
     pub header_params: Vec<Field>,
     pub return_type: String,
     pub method: String,
     pub path: String,
+}
+
+#[derive(Serialize)]
+struct ClientConfigFile(String);
+impl TemplateContext for ClientConfigFile {
+    fn template(&self) -> &'static str { "config.tera" }
+    fn filename(&self) -> String { format!("{}.config.ts", case::kebab_case(&self.0)) }
+}
+
+#[derive(Serialize)]
+struct ClientModuleFile(String);
+impl TemplateContext for ClientModuleFile {
+    fn template(&self) -> &'static str { "module.tera" }
+    fn filename(&self) -> String { format!("{}.module.ts", case::kebab_case(&self.0)) }
+}
+
+#[derive(Serialize)]
+struct PackageFile {
+    name: String,
+    version: String,
+    description: String
+}
+impl TemplateContext for PackageFile {
+    fn template(&self) -> &'static str { "package.tera" }
+    fn filename(&self) -> String { String::from("package.json") }
+}
+
+#[derive(Serialize)]
+struct ReadmeFile;
+impl TemplateContext for ReadmeFile {
+    fn template(&self) -> &'static str { "module.tera" }
+    fn filename(&self) -> String { String::from("README.md") }
+}
+
+#[derive(Serialize)]
+struct GitIgnoreFile;
+impl TemplateContext for GitIgnoreFile {
+    fn template(&self) -> &'static str { "gitignore.tera" }
+    fn filename(&self) -> String { String::from("gitignore") }
+}
+
+#[derive(Serialize)]
+struct TsConfigFile;
+impl TemplateContext for TsConfigFile {
+    fn template(&self) -> &'static str { "tsconfig.tera" }
+    fn filename(&self) -> String { String::from("tsconfig.json") }
+}
+
+#[derive(Serialize)]
+struct LicenseFile;
+impl TemplateContext for LicenseFile {
+    fn template(&self) -> &'static str { "license.tera" }
+    fn filename(&self) -> String { String::from("LICENSE.md" )}
+}
+
+#[derive(Serialize)]
+struct TypingsFile;
+impl TemplateContext for TypingsFile {
+    fn template(&self) -> &'static str { "typings.tera" }
+    fn filename(&self) -> String { String::from("typings.d.ts") }
+}
+
+#[derive(Serialize)]
+struct UtilFile;
+impl TemplateContext for UtilFile {
+    fn template(&self) -> &'static str { "util.tera" }
+    fn filename(&self) -> String { String::from("util.ts") }
+}
+
+#[derive(Serialize)]
+struct VariablesFile;
+impl TemplateContext for VariablesFile {
+    fn template(&self) -> &'static str { "variables.tera" }
+    fn filename(&self) -> String { String::from("variables.ts") }
 }
 
